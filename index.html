@@ -1,0 +1,1573 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Yorker Pizza San Pedro - Sistema POS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <style>
+        * { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .hidden { display: none !important; }
+        .sidebar-open { transform: translateX(0) !important; }
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); position: fixed; z-index: 40; height: 100vh; transition: transform 0.3s ease; }
+            .overlay { display: none; }
+            .overlay.active { display: block; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 30; }
+        }
+        .logo-img { object-fit: contain; }
+        .low-stock { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-green-50 via-white to-red-50">
+    
+    <!-- NOTIFICACIÓN -->
+    <div id="notification" class="hidden fixed top-4 right-4 z-50 px-6 py-3 rounded-2xl shadow-2xl text-white font-medium"></div>
+
+    <!-- INDICADOR DE CONEXIÓN -->
+    <div id="connectionStatus" class="fixed bottom-4 left-4 z-50 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 shadow-lg bg-green-500 text-white">
+        <span id="connectionDot" class="w-2 h-2 rounded-full bg-white"></span>
+        <span id="connectionText">Conectado</span>
+    </div>
+
+    <!-- PANTALLA DE LOGIN -->
+    <div id="loginScreen" class="min-h-screen flex items-center justify-center p-4">
+        <div class="w-full max-w-md">
+            <div class="text-center mb-8">
+                <div class="inline-block mb-4">
+                    <img src="logo.png" alt="New Yorker Pizza" class="w-48 h-48 mx-auto logo-img">
+                </div>
+                <h1 class="text-2xl md:text-3xl font-extrabold text-gray-800 tracking-tight">New Yorker Pizza</h1>
+                <p class="text-green-600 font-semibold text-lg">San Pedro</p>
+                <p class="text-gray-500 mt-1">Sistema de Gestión</p>
+            </div>
+
+            <div class="bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl p-8 border border-green-100">
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-wide">Usuario</label>
+                        <input type="text" id="username" class="w-full px-5 py-4 bg-gray-50 border-2 border-gray-200 rounded-2xl focus:border-green-500 focus:bg-white focus:outline-none transition-all text-lg" placeholder="Ingresa tu usuario" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-wide">Contraseña</label>
+                        <input type="password" id="password" class="w-full px-5 py-4 bg-gray-50 border-2 border-gray-200 rounded-2xl focus:border-green-500 focus:bg-white focus:outline-none transition-all text-lg" placeholder="••••••••" required>
+                    </div>
+                    <button onclick="login()" class="w-full py-4 bg-gradient-to-r from-green-600 to-green-700 text-white font-bold text-lg rounded-2xl hover:from-green-700 hover:to-green-800 transition-all shadow-xl">
+                        Iniciar Sesión
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DASHBOARD PRINCIPAL -->
+    <div id="dashboard" class="hidden min-h-screen">
+        <!-- Overlay para móvil -->
+        <div id="overlay" class="overlay" onclick="toggleSidebar()"></div>
+        
+        <!-- Header móvil -->
+        <header class="md:hidden fixed top-0 left-0 right-0 bg-gradient-to-r from-green-800 to-green-700 text-white p-4 flex items-center justify-between z-20 shadow-lg">
+            <button onclick="toggleSidebar()" class="p-2 hover:bg-green-600 rounded-xl">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                </svg>
+            </button>
+            <div class="flex items-center gap-2">
+                <img src="logo.png" alt="Logo" class="w-8 h-8 logo-img">
+                <span class="font-bold text-sm">New Yorker Pizza</span>
+            </div>
+            <div id="mobileUserIcon" class="w-10 h-10 rounded-xl flex items-center justify-center text-lg bg-gradient-to-br from-yellow-500 to-yellow-600">👑</div>
+        </header>
+
+        <div class="flex">
+            <!-- Sidebar -->
+            <aside id="sidebar" class="sidebar w-72 bg-gradient-to-b from-green-900 via-green-800 to-green-900 text-white flex flex-col shadow-2xl md:relative md:transform-none">
+                <div class="p-6 border-b border-green-700">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-4">
+                            <div class="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-lg p-1">
+                                <img src="logo.png" alt="Logo" class="w-full h-full logo-img">
+                            </div>
+                            <div>
+                                <h1 class="font-extrabold text-lg tracking-tight leading-tight">New Yorker<br>Pizza</h1>
+                                <p class="text-green-300 text-sm">San Pedro</p>
+                            </div>
+                        </div>
+                        <button onclick="toggleSidebar()" class="md:hidden p-2 hover:bg-green-700 rounded-xl">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="p-6 border-b border-green-700">
+                    <div class="flex items-center gap-3">
+                        <div id="userIcon" class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl bg-gradient-to-br from-yellow-500 to-yellow-600">👑</div>
+                        <div>
+                            <p id="userName" class="font-bold">Administrador</p>
+                            <p id="userRole" class="text-xs uppercase tracking-wider text-yellow-400">Administrador</p>
+                        </div>
+                    </div>
+                </div>
+
+                <nav class="flex-1 p-4 overflow-auto">
+                    <ul class="space-y-2">
+                        <li><button onclick="showView('pos')" id="btnPos" class="menu-btn active w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all bg-gradient-to-r from-red-600 to-red-700 text-white shadow-lg"><span class="text-2xl">🛒</span><span class="font-semibold">Punto de Venta</span></button></li>
+                        <li id="menuReports" class="hidden"><button onclick="showView('reports')" id="btnReports" class="menu-btn w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all text-green-200 hover:bg-green-700/50"><span class="text-2xl">📊</span><span class="font-semibold">Reportes</span></button></li>
+                        <li id="menuProducts" class="hidden"><button onclick="showView('products')" id="btnProducts" class="menu-btn w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all text-green-200 hover:bg-green-700/50"><span class="text-2xl">📦</span><span class="font-semibold">Productos</span></button></li>
+                        <li><button onclick="showView('inventory')" id="btnInventory" class="menu-btn w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all text-green-200 hover:bg-green-700/50"><span class="text-2xl">🧀</span><span class="font-semibold">Inventario</span></button></li>
+                        <li><button onclick="showView('history')" id="btnHistory" class="menu-btn w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all text-green-200 hover:bg-green-700/50"><span class="text-2xl">📋</span><span class="font-semibold">Historial</span></button></li>
+                        <li><button onclick="showView('cashcut')" id="btnCashcut" class="menu-btn w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all text-green-200 hover:bg-green-700/50"><span class="text-2xl">💰</span><span class="font-semibold">Corte de Caja</span></button></li>
+                        <li id="menuUsers" class="hidden"><button onclick="showView('users')" id="btnUsers" class="menu-btn w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all text-green-200 hover:bg-green-700/50"><span class="text-2xl">👥</span><span class="font-semibold">Usuarios</span></button></li>
+                    </ul>
+                </nav>
+
+                <div class="p-4 border-t border-green-700">
+                    <button onclick="logout()" class="w-full flex items-center justify-center gap-3 px-5 py-4 bg-green-700/50 hover:bg-red-600 text-green-200 hover:text-white rounded-xl transition-all">
+                        <span class="text-xl">🚪</span>
+                        <span class="font-semibold">Cerrar Sesión</span>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="flex-1 overflow-auto md:h-screen pt-16 md:pt-0">
+                <!-- POS VIEW -->
+                <div id="posView" class="flex flex-col lg:flex-row h-full">
+                    <div class="flex-1 p-4 md:p-6 overflow-auto">
+                        <div class="mb-6">
+                            <h2 class="text-2xl md:text-3xl font-extrabold text-gray-800">Punto de Venta</h2>
+                            <p class="text-gray-500 text-sm md:text-base">Selecciona los productos para agregar al pedido</p>
+                        </div>
+                        <div id="productsGrid" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4"></div>
+                    </div>
+
+                    <div class="lg:w-96 bg-white shadow-2xl flex flex-col border-t lg:border-t-0 lg:border-l border-gray-100">
+                        <div class="p-4 md:p-6 bg-gradient-to-r from-green-700 to-green-600 text-white">
+                            <h3 class="text-lg md:text-xl font-bold flex items-center gap-3"><span class="text-2xl">🛒</span>Pedido Actual</h3>
+                            <p id="cartCount" class="text-green-100 text-sm mt-1">0 productos</p>
+                        </div>
+                        <div id="cartItems" class="flex-1 overflow-auto p-4 max-h-60 lg:max-h-none">
+                            <div class="flex flex-col items-center justify-center h-full text-gray-400 py-8">
+                                <span class="text-5xl md:text-6xl mb-4">🛒</span>
+                                <p class="font-medium">El carrito está vacío</p>
+                            </div>
+                        </div>
+                        <div class="p-4 md:p-6 bg-gray-50 border-t border-gray-200">
+                            <div class="space-y-3 mb-4 md:mb-6">
+                                <div class="flex justify-between text-gray-600">
+                                    <span>Subtotal</span>
+                                    <span id="subtotal" class="font-medium">$0.00 MXN</span>
+                                </div>
+                                <div class="flex justify-between text-xl md:text-2xl font-extrabold text-gray-800 pt-3 border-t border-gray-200">
+                                    <span>TOTAL</span>
+                                    <span id="total" class="text-green-600">$0.00 MXN</span>
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-bold text-gray-700 mb-2">Método de Pago</label>
+                                <div class="grid grid-cols-3 gap-2">
+                                    <button onclick="setPayment('efectivo')" id="payEfectivo" class="pay-btn p-2 md:p-3 rounded-xl border-2 border-green-500 bg-green-50 text-green-700"><span class="text-lg md:text-xl block mb-1">💵</span><span class="text-xs font-medium">Efectivo</span></button>
+                                    <button onclick="setPayment('tarjeta')" id="payTarjeta" class="pay-btn p-2 md:p-3 rounded-xl border-2 border-gray-200 hover:border-gray-300"><span class="text-lg md:text-xl block mb-1">💳</span><span class="text-xs font-medium">Tarjeta</span></button>
+                                    <button onclick="setPayment('transferencia')" id="payTransfer" class="pay-btn p-2 md:p-3 rounded-xl border-2 border-gray-200 hover:border-gray-300"><span class="text-lg md:text-xl block mb-1">📱</span><span class="text-xs font-medium">Transfer</span></button>
+                                </div>
+                            </div>
+                            <button onclick="processSale()" id="checkoutBtn" class="w-full py-3 md:py-4 bg-gradient-to-r from-gray-300 to-gray-400 text-white font-bold text-base md:text-lg rounded-xl cursor-not-allowed">Agrega productos</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REPORTS VIEW -->
+                <div id="reportsView" class="hidden p-4 md:p-8">
+                    <div class="mb-6 md:mb-8">
+                        <h2 class="text-2xl md:text-3xl font-extrabold text-gray-800">Reportes de Ventas</h2>
+                        <p class="text-gray-500">Análisis completo de ventas</p>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
+                        <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl md:rounded-3xl p-4 md:p-6 text-white shadow-xl">
+                            <div class="flex items-center justify-between mb-3 md:mb-4"><span class="text-4xl md:text-5xl">📅</span><span class="text-xs md:text-sm uppercase tracking-wider opacity-80">Hoy</span></div>
+                            <p id="todayTotal" class="text-2xl md:text-4xl font-extrabold mb-1">$0.00 MXN</p>
+                            <p id="todayCount" class="text-blue-200 text-sm">0 ventas</p>
+                        </div>
+                        <div class="bg-gradient-to-br from-green-600 to-green-700 rounded-2xl md:rounded-3xl p-4 md:p-6 text-white shadow-xl">
+                            <div class="flex items-center justify-between mb-3 md:mb-4"><span class="text-4xl md:text-5xl">📆</span><span class="text-xs md:text-sm uppercase tracking-wider opacity-80">Este Mes</span></div>
+                            <p id="monthTotal" class="text-2xl md:text-4xl font-extrabold mb-1">$0.00 MXN</p>
+                            <p id="monthCount" class="text-green-200 text-sm">0 ventas</p>
+                        </div>
+                        <div class="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl md:rounded-3xl p-4 md:p-6 text-white shadow-xl">
+                            <div class="flex items-center justify-between mb-3 md:mb-4"><span class="text-4xl md:text-5xl">📊</span><span class="text-xs md:text-sm uppercase tracking-wider opacity-80">Histórico</span></div>
+                            <p id="histTotal" class="text-2xl md:text-4xl font-extrabold mb-1">$0.00 MXN</p>
+                            <p id="histCount" class="text-red-200 text-sm">0 ventas totales</p>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-xl">
+                        <h3 class="text-lg md:text-xl font-bold text-gray-800 mb-4 md:mb-6 flex items-center gap-3"><span class="text-xl md:text-2xl">🏆</span>Productos Más Vendidos</h3>
+                        <div id="topProducts" class="space-y-3 md:space-y-4"><p class="text-gray-500 text-center py-8">No hay datos disponibles</p></div>
+                    </div>
+                </div>
+
+                <!-- PRODUCTS VIEW -->
+                <div id="productsView" class="hidden p-4 md:p-8">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 md:mb-8">
+                        <div>
+                            <h2 class="text-2xl md:text-3xl font-extrabold text-gray-800">Gestión de Productos</h2>
+                            <p class="text-gray-500">Administra el catálogo</p>
+                        </div>
+                        <button onclick="showProductModal()" class="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white font-bold rounded-xl hover:from-green-700 hover:to-green-800 transition-all shadow-lg">
+                            <span class="text-xl">+</span>Nuevo Producto
+                        </button>
+                    </div>
+                    
+                    <div class="hidden md:block bg-white rounded-3xl shadow-xl overflow-hidden">
+                        <table class="w-full">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="text-left p-6 font-bold text-gray-700">Producto</th>
+                                    <th class="text-left p-6 font-bold text-gray-700">Categoría</th>
+                                    <th class="text-left p-6 font-bold text-gray-700">Precio</th>
+                                    <th class="text-left p-6 font-bold text-gray-700">Estado</th>
+                                    <th class="text-right p-6 font-bold text-gray-700">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="productsTable"></tbody>
+                        </table>
+                    </div>
+                    
+                    <div id="productsCards" class="md:hidden space-y-4"></div>
+                </div>
+
+                <!-- INVENTORY VIEW -->
+                <div id="inventoryView" class="hidden p-4 md:p-8">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 md:mb-8">
+                        <div>
+                            <h2 class="text-2xl md:text-3xl font-extrabold text-gray-800">📦 Inventario</h2>
+                            <p class="text-gray-500">Control de ingredientes</p>
+                        </div>
+                        <div id="inventoryAdminBtns" class="hidden w-full md:w-auto flex gap-2">
+                            <button onclick="showAddInventoryModal()" class="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white font-bold rounded-xl hover:from-green-700 hover:to-green-800 transition-all shadow-lg">
+                                <span class="text-xl">+</span>Agregar Stock
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Alerta de stock bajo -->
+                    <div id="lowStockAlert" class="hidden mb-6 bg-red-50 border-2 border-red-200 rounded-2xl p-4 flex items-center gap-4">
+                        <span class="text-4xl">⚠️</span>
+                        <div>
+                            <p class="font-bold text-red-700">Stock Bajo</p>
+                            <p id="lowStockItems" class="text-red-600 text-sm">Algunos ingredientes están por agotarse</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6" id="inventoryGrid"></div>
+                </div>
+
+                <!-- HISTORY VIEW -->
+                <div id="historyView" class="hidden p-4 md:p-8">
+                    <div class="mb-6 md:mb-8">
+                        <h2 class="text-2xl md:text-3xl font-extrabold text-gray-800">Historial de Ventas</h2>
+                        <p class="text-gray-500">Registro de transacciones</p>
+                    </div>
+                    <div id="salesHistory" class="space-y-4"></div>
+                </div>
+
+                <!-- CASH CUT VIEW -->
+                <div id="cashcutView" class="hidden p-4 md:p-8">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 md:mb-8">
+                        <div>
+                            <h2 class="text-2xl md:text-3xl font-extrabold text-gray-800">💰 Corte de Caja</h2>
+                            <p class="text-gray-500">Resumen del día actual</p>
+                        </div>
+                        <button onclick="processCashCut()" id="cashCutBtn" class="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all shadow-lg">
+                            <span class="text-xl">📋</span>Realizar Corte
+                        </button>
+                    </div>
+
+                    <!-- Resumen del día -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-6 mb-8">
+                        <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-4 md:p-6 text-white shadow-xl">
+                            <div class="flex items-center justify-between mb-2"><span class="text-3xl">💵</span></div>
+                            <p id="cashEfectivo" class="text-2xl md:text-3xl font-extrabold">$0.00</p>
+                            <p class="text-green-200 text-sm">Efectivo</p>
+                        </div>
+                        <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-4 md:p-6 text-white shadow-xl">
+                            <div class="flex items-center justify-between mb-2"><span class="text-3xl">💳</span></div>
+                            <p id="cashTarjeta" class="text-2xl md:text-3xl font-extrabold">$0.00</p>
+                            <p class="text-blue-200 text-sm">Tarjeta</p>
+                        </div>
+                        <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-4 md:p-6 text-white shadow-xl">
+                            <div class="flex items-center justify-between mb-2"><span class="text-3xl">📱</span></div>
+                            <p id="cashTransfer" class="text-2xl md:text-3xl font-extrabold">$0.00</p>
+                            <p class="text-purple-200 text-sm">Transferencia</p>
+                        </div>
+                        <div class="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-2xl p-4 md:p-6 text-white shadow-xl">
+                            <div class="flex items-center justify-between mb-2"><span class="text-3xl">💰</span></div>
+                            <p id="cashTotal" class="text-2xl md:text-3xl font-extrabold">$0.00</p>
+                            <p class="text-yellow-200 text-sm">Total del Día</p>
+                        </div>
+                    </div>
+
+                    <!-- Ventas del día -->
+                    <div class="bg-white rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-xl mb-8">
+                        <h3 class="text-lg md:text-xl font-bold text-gray-800 mb-4 flex items-center gap-3">
+                            <span class="text-xl">🧾</span>Ventas de Hoy
+                            <span id="todaySalesCount" class="text-sm bg-green-100 text-green-700 px-3 py-1 rounded-full">0 ventas</span>
+                        </h3>
+                        <div id="todaySalesList" class="space-y-3 max-h-96 overflow-auto"></div>
+                    </div>
+
+                    <!-- Historial de cortes -->
+                    <div class="bg-white rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-xl">
+                        <h3 class="text-lg md:text-xl font-bold text-gray-800 mb-4 flex items-center gap-3">
+                            <span class="text-xl">📊</span>Historial de Cortes
+                        </h3>
+                        <div id="cashCutHistory" class="space-y-3"></div>
+                    </div>
+                </div>
+
+                <!-- USERS VIEW -->
+                <div id="usersView" class="hidden p-4 md:p-8">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 md:mb-8">
+                        <div>
+                            <h2 class="text-2xl md:text-3xl font-extrabold text-gray-800">👥 Gestión de Usuarios</h2>
+                            <p class="text-gray-500">Administra los perfiles del sistema</p>
+                        </div>
+                        <button onclick="showUserModal()" class="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white font-bold rounded-xl hover:from-green-700 hover:to-green-800 transition-all shadow-lg">
+                            <span class="text-xl">+</span>Nuevo Usuario
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6" id="usersGrid"></div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- MODAL PRODUCTO -->
+    <div id="productModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl md:rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl max-h-[90vh] overflow-auto">
+            <h3 id="modalTitle" class="text-xl md:text-2xl font-extrabold text-gray-800 mb-6">Nuevo Producto</h3>
+            <div class="space-y-4 md:space-y-6">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Icono</label>
+                    <div id="emojiPicker" class="flex flex-wrap gap-2"></div>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Nombre</label>
+                    <input type="text" id="prodName" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="Ej: Pizza Especial">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Precio (MXN)</label>
+                    <input type="number" id="prodPrice" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="99" min="0">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Categoría</label>
+                    <select id="prodCategory" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none">
+                        <option value="pizza">Pizza</option>
+                        <option value="bebida">Bebida</option>
+                        <option value="complemento">Complemento</option>
+                        <option value="postre">Postre</option>
+                    </select>
+                </div>
+                <div class="flex gap-3 pt-4">
+                    <button onclick="closeProductModal()" class="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Cancelar</button>
+                    <button onclick="saveProduct()" class="flex-1 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white font-bold rounded-xl hover:from-green-700 hover:to-green-800">Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL AGREGAR INVENTARIO -->
+    <div id="inventoryModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl md:rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl max-h-[90vh] overflow-auto">
+            <h3 class="text-xl md:text-2xl font-extrabold text-gray-800 mb-6">➕ Agregar al Inventario</h3>
+            <div class="space-y-4 md:space-y-6">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Ingrediente</label>
+                    <select id="invItem" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none">
+                        <option value="basePizza">🍕 Bases de Pizza</option>
+                        <option value="baseRebanada">🔺 Bases de Rebanada</option>
+                        <option value="queso">🧀 Queso</option>
+                        <option value="jamon">🥓 Jamón</option>
+                        <option value="pepperoni">🔴 Pepperoni</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Cantidad a Agregar</label>
+                    <input type="number" id="invQuantity" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="10" min="1">
+                </div>
+                <div class="flex gap-3 pt-4">
+                    <button onclick="closeInventoryModal()" class="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Cancelar</button>
+                    <button onclick="addInventory()" class="flex-1 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white font-bold rounded-xl hover:from-green-700 hover:to-green-800">Agregar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL EDITAR INVENTARIO -->
+    <div id="editInventoryModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl md:rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl">
+            <h3 class="text-xl md:text-2xl font-extrabold text-gray-800 mb-6">✏️ Editar Cantidad</h3>
+            <div class="space-y-4 md:space-y-6">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2" id="editInvLabel">Ingrediente</label>
+                    <input type="number" id="editInvQuantity" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="0" min="0">
+                </div>
+                <div class="flex gap-3 pt-4">
+                    <button onclick="closeEditInventoryModal()" class="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Cancelar</button>
+                    <button onclick="saveInventoryEdit()" class="flex-1 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white font-bold rounded-xl hover:from-green-700 hover:to-green-800">Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL USUARIO -->
+    <div id="userModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl md:rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl">
+            <h3 id="userModalTitle" class="text-xl md:text-2xl font-extrabold text-gray-800 mb-6">Nuevo Usuario</h3>
+            <div class="space-y-4 md:space-y-6">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Nombre Completo</label>
+                    <input type="text" id="userFullName" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="Ej: Juan Pérez">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Usuario</label>
+                    <input type="text" id="userUsername" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="Ej: juan">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Contraseña</label>
+                    <input type="text" id="userPassword" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="Mínimo 6 caracteres">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Rol</label>
+                    <select id="userRoleSelect" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none">
+                        <option value="cajero">💼 Cajero</option>
+                        <option value="admin">👑 Administrador</option>
+                    </select>
+                </div>
+                <div class="flex gap-3 pt-4">
+                    <button onclick="closeUserModal()" class="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Cancelar</button>
+                    <button onclick="saveUser()" class="flex-1 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white font-bold rounded-xl hover:from-green-700 hover:to-green-800">Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL CONFIRMAR ELIMINACIÓN DE USUARIO -->
+    <div id="deleteUserModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl md:rounded-3xl p-6 md:p-8 w-full max-w-sm shadow-2xl">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span class="text-3xl">🗑️</span>
+                </div>
+                <h3 class="text-xl font-extrabold text-gray-800 mb-2">¿Eliminar usuario?</h3>
+                <p class="text-gray-500 text-sm">Esta acción no se puede deshacer.</p>
+            </div>
+            <div id="deleteUserInfo" class="bg-gray-50 rounded-xl p-4 mb-6 text-center"></div>
+            <div class="flex gap-3">
+                <button onclick="closeDeleteUserModal()" class="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Cancelar</button>
+                <button onclick="confirmDeleteUser()" class="flex-1 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white font-bold rounded-xl hover:from-red-600 hover:to-red-700">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL CONFIRMAR ELIMINACIÓN DE VENTA -->
+    <div id="deleteSaleModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl md:rounded-3xl p-6 md:p-8 w-full max-w-sm shadow-2xl">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span class="text-3xl">🗑️</span>
+                </div>
+                <h3 class="text-xl font-extrabold text-gray-800 mb-2">¿Eliminar venta?</h3>
+                <p class="text-gray-500 text-sm">Esta acción no se puede deshacer.</p>
+            </div>
+            <div id="deleteSaleInfo" class="bg-gray-50 rounded-xl p-4 mb-6"></div>
+            <div class="flex gap-3">
+                <button onclick="closeDeleteSaleModal()" class="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Cancelar</button>
+                <button onclick="confirmDeleteSale()" class="flex-1 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white font-bold rounded-xl hover:from-red-600 hover:to-red-700">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL CORTE DE CAJA -->
+    <div id="cashCutModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl md:rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span class="text-3xl">💰</span>
+                </div>
+                <h3 class="text-xl font-extrabold text-gray-800 mb-2">Confirmar Corte de Caja</h3>
+                <p class="text-gray-500 text-sm">Se registrará el corte con los siguientes totales:</p>
+            </div>
+            <div id="cashCutSummary" class="bg-gray-50 rounded-xl p-4 mb-6 space-y-2"></div>
+            <div class="flex gap-3">
+                <button onclick="closeCashCutModal()" class="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Cancelar</button>
+                <button onclick="confirmCashCut()" class="flex-1 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white font-bold rounded-xl hover:from-green-700 hover:to-green-800">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CONFIGURACIÓN FIREBASE
+        // ============================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyAUdxNJwxZjAz1IfcMVt47A7D8wuqw3kGw",
+            authDomain: "new-yorker-pizza-94463.firebaseapp.com",
+            projectId: "new-yorker-pizza-94463",
+            storageBucket: "new-yorker-pizza-94463.firebasestorage.app",
+            messagingSenderId: "316755461429",
+            appId: "1:316755461429:web:6aa7c9045895d177f1b87c"
+        };
+
+        // Inicializar Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // ============================================
+        // VARIABLES GLOBALES
+        // ============================================
+        const INITIAL_USERS = [
+            { id: 'admin', username: 'admin', password: 'admin123', role: 'admin', name: 'Administrador' },
+            { id: 'cajero', username: 'cajero', password: 'cajero123', role: 'cajero', name: 'Cajero Principal' }
+        ];
+
+        const INITIAL_PRODUCTS = [
+            { id: 1, name: 'Pizza de Pepperoni', price: 99, category: 'pizza', image: '🍕', active: true },
+            { id: 2, name: 'Pizza de Jamón', price: 99, category: 'pizza', image: '🍕', active: true },
+            { id: 3, name: 'Pizza Hawaiana', price: 99, category: 'pizza', image: '🍍', active: true },
+            { id: 4, name: 'Pizza de Queso', price: 99, category: 'pizza', image: '🧀', active: true }
+        ];
+
+        const INITIAL_INVENTORY = {
+            basePizza: { name: 'Bases de Pizza', quantity: 0, unit: 'unidades', icon: '🍕', minStock: 5 },
+            baseRebanada: { name: 'Bases de Rebanada', quantity: 0, unit: 'unidades', icon: '🔺', minStock: 10 },
+            queso: { name: 'Queso', quantity: 0, unit: 'porciones', icon: '🧀', minStock: 10 },
+            jamon: { name: 'Jamón', quantity: 0, unit: 'porciones', icon: '🥓', minStock: 10 },
+            pepperoni: { name: 'Pepperoni', quantity: 0, unit: 'porciones', icon: '🔴', minStock: 10 }
+        };
+
+        // Recetas: qué ingredientes usa cada producto
+        const RECIPES = {
+            'Pizza de Pepperoni': { basePizza: 1, queso: 1, pepperoni: 1 },
+            'Pizza de Jamón': { basePizza: 1, queso: 1, jamon: 1 },
+            'Pizza Hawaiana': { basePizza: 1, queso: 1, jamon: 1 },
+            'Pizza de Queso': { basePizza: 1, queso: 1 }
+        };
+
+        const EMOJIS = ['🍕', '🧀', '🍍', '🥓', '🌶️', '🍄', '🫒', '🥬', '🍗', '🥤', '🍺', '🧃'];
+
+        let currentUser = null;
+        let users = [];
+        let products = [];
+        let sales = [];
+        let inventory = {};
+        let cashCuts = [];
+        let cart = [];
+        let paymentMethod = 'efectivo';
+        let editingProductId = null;
+        let editingInventoryItem = null;
+        let editingUserId = null;
+        let userToDelete = null;
+        let selectedEmoji = '🍕';
+        let saleToDelete = null;
+        let isOnline = navigator.onLine;
+        let pendingSyncs = [];
+
+        // ============================================
+        // FUNCIONES DE UTILIDAD
+        // ============================================
+        function formatCurrency(amount) { return '$' + amount.toFixed(2) + ' MXN'; }
+        function formatCurrencyShort(amount) { return '$' + amount.toFixed(2); }
+        function formatDate(date) { return new Date(date).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+        function formatDateShort(date) { return new Date(date).toLocaleDateString('es-MX', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+
+        // ============================================
+        // CONEXIÓN Y SINCRONIZACIÓN
+        // ============================================
+        function updateConnectionStatus() {
+            const statusDiv = document.getElementById('connectionStatus');
+            const text = document.getElementById('connectionText');
+            
+            if (isOnline) {
+                statusDiv.className = 'fixed bottom-4 left-4 z-50 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 shadow-lg bg-green-500 text-white';
+                text.textContent = 'Conectado ☁️';
+                syncPendingData();
+            } else {
+                statusDiv.className = 'fixed bottom-4 left-4 z-50 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 shadow-lg bg-orange-500 text-white';
+                text.textContent = 'Sin conexión 📴';
+            }
+        }
+
+        window.addEventListener('online', () => { isOnline = true; updateConnectionStatus(); });
+        window.addEventListener('offline', () => { isOnline = false; updateConnectionStatus(); });
+
+        // ============================================
+        // FIREBASE: GUARDAR Y CARGAR DATOS
+        // ============================================
+        async function saveToFirebase(collection, docId, data) {
+            if (!isOnline) {
+                pendingSyncs.push({ collection, docId, data, action: 'save' });
+                localStorage.setItem('pendingSyncs_nypizza', JSON.stringify(pendingSyncs));
+                return false;
+            }
+            try {
+                await db.collection(collection).doc(String(docId)).set(data);
+                return true;
+            } catch (error) {
+                console.error('Error guardando en Firebase:', error);
+                pendingSyncs.push({ collection, docId, data, action: 'save' });
+                localStorage.setItem('pendingSyncs_nypizza', JSON.stringify(pendingSyncs));
+                return false;
+            }
+        }
+
+        async function deleteFromFirebase(collection, docId) {
+            if (!isOnline) {
+                pendingSyncs.push({ collection, docId, action: 'delete' });
+                localStorage.setItem('pendingSyncs_nypizza', JSON.stringify(pendingSyncs));
+                return false;
+            }
+            try {
+                await db.collection(collection).doc(String(docId)).delete();
+                return true;
+            } catch (error) {
+                console.error('Error eliminando de Firebase:', error);
+                return false;
+            }
+        }
+
+        async function loadFromFirebase(collection) {
+            try {
+                const snapshot = await db.collection(collection).get();
+                return snapshot.docs.map(doc => doc.data());
+            } catch (error) {
+                console.error('Error cargando de Firebase:', error);
+                return null;
+            }
+        }
+
+        async function loadDocFromFirebase(collection, docId) {
+            try {
+                const doc = await db.collection(collection).doc(docId).get();
+                return doc.exists ? doc.data() : null;
+            } catch (error) {
+                console.error('Error cargando documento de Firebase:', error);
+                return null;
+            }
+        }
+
+        async function syncPendingData() {
+            if (!isOnline || pendingSyncs.length === 0) return;
+            
+            const syncsToProcess = [...pendingSyncs];
+            pendingSyncs = [];
+            
+            for (const sync of syncsToProcess) {
+                try {
+                    if (sync.action === 'save') {
+                        await db.collection(sync.collection).doc(String(sync.docId)).set(sync.data);
+                    } else if (sync.action === 'delete') {
+                        await db.collection(sync.collection).doc(String(sync.docId)).delete();
+                    }
+                } catch (error) {
+                    pendingSyncs.push(sync);
+                }
+            }
+            
+            localStorage.setItem('pendingSyncs_nypizza', JSON.stringify(pendingSyncs));
+            
+            if (syncsToProcess.length > pendingSyncs.length) {
+                showNotification('Datos sincronizados con la nube ☁️');
+            }
+        }
+
+        // ============================================
+        // CARGAR Y GUARDAR DATOS
+        // ============================================
+        async function loadData() {
+            pendingSyncs = JSON.parse(localStorage.getItem('pendingSyncs_nypizza')) || [];
+            
+            if (isOnline) {
+                // Cargar usuarios
+                const firebaseUsers = await loadFromFirebase('users');
+                if (firebaseUsers && firebaseUsers.length > 0) {
+                    users = firebaseUsers;
+                } else {
+                    users = [...INITIAL_USERS];
+                    for (const user of users) {
+                        await saveToFirebase('users', user.id, user);
+                    }
+                }
+                
+                // Cargar productos
+                const firebaseProducts = await loadFromFirebase('products');
+                if (firebaseProducts && firebaseProducts.length > 0) {
+                    products = firebaseProducts;
+                } else {
+                    products = [...INITIAL_PRODUCTS];
+                    for (const product of products) {
+                        await saveToFirebase('products', product.id, product);
+                    }
+                }
+                
+                // Cargar ventas
+                const firebaseSales = await loadFromFirebase('sales');
+                sales = firebaseSales || [];
+                
+                // Cargar inventario
+                const firebaseInventory = await loadDocFromFirebase('config', 'inventory');
+                if (firebaseInventory) {
+                    inventory = firebaseInventory;
+                } else {
+                    inventory = { ...INITIAL_INVENTORY };
+                    await saveToFirebase('config', 'inventory', inventory);
+                }
+                
+                // Cargar cortes de caja
+                const firebaseCashCuts = await loadFromFirebase('cashcuts');
+                cashCuts = firebaseCashCuts || [];
+                
+                // Guardar en localStorage como respaldo
+                localStorage.setItem('users_nypizza', JSON.stringify(users));
+                localStorage.setItem('products_nypizza', JSON.stringify(products));
+                localStorage.setItem('sales_nypizza', JSON.stringify(sales));
+                localStorage.setItem('inventory_nypizza', JSON.stringify(inventory));
+                localStorage.setItem('cashcuts_nypizza', JSON.stringify(cashCuts));
+            } else {
+                // Cargar de localStorage si no hay conexión
+                users = JSON.parse(localStorage.getItem('users_nypizza')) || [...INITIAL_USERS];
+                products = JSON.parse(localStorage.getItem('products_nypizza')) || [...INITIAL_PRODUCTS];
+                sales = JSON.parse(localStorage.getItem('sales_nypizza')) || [];
+                inventory = JSON.parse(localStorage.getItem('inventory_nypizza')) || { ...INITIAL_INVENTORY };
+                cashCuts = JSON.parse(localStorage.getItem('cashcuts_nypizza')) || [];
+            }
+        }
+
+        async function saveAllData() {
+            localStorage.setItem('users_nypizza', JSON.stringify(users));
+            localStorage.setItem('products_nypizza', JSON.stringify(products));
+            localStorage.setItem('sales_nypizza', JSON.stringify(sales));
+            localStorage.setItem('inventory_nypizza', JSON.stringify(inventory));
+            localStorage.setItem('cashcuts_nypizza', JSON.stringify(cashCuts));
+        }
+
+        // ============================================
+        // SESIÓN
+        // ============================================
+        function saveSession(user) { localStorage.setItem('currentSession_nypizza', JSON.stringify(user)); }
+        function clearSession() { localStorage.removeItem('currentSession_nypizza'); }
+        
+        function restoreSession() {
+            const savedSession = localStorage.getItem('currentSession_nypizza');
+            if (savedSession) {
+                const sessionUser = JSON.parse(savedSession);
+                const validUser = users.find(u => u.username === sessionUser.username);
+                if (validUser) { 
+                    currentUser = validUser; 
+                    initializeDashboard(validUser); 
+                    return true; 
+                } else { 
+                    clearSession(); 
+                }
+            }
+            return false;
+        }
+
+        function initializeDashboard(user) {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            document.getElementById('userName').textContent = user.name;
+            document.getElementById('userRole').textContent = user.role === 'admin' ? 'Administrador' : 'Cajero';
+            
+            if (user.role === 'admin') {
+                document.getElementById('userIcon').className = 'w-12 h-12 rounded-xl flex items-center justify-center text-2xl bg-gradient-to-br from-yellow-500 to-yellow-600';
+                document.getElementById('userIcon').textContent = '👑';
+                document.getElementById('mobileUserIcon').className = 'w-10 h-10 rounded-xl flex items-center justify-center text-lg bg-gradient-to-br from-yellow-500 to-yellow-600';
+                document.getElementById('mobileUserIcon').textContent = '👑';
+                document.getElementById('userRole').className = 'text-xs uppercase tracking-wider text-yellow-400';
+                document.getElementById('menuReports').classList.remove('hidden');
+                document.getElementById('menuProducts').classList.remove('hidden');
+                document.getElementById('menuUsers').classList.remove('hidden');
+                document.getElementById('inventoryAdminBtns').classList.remove('hidden');
+            } else {
+                document.getElementById('userIcon').className = 'w-12 h-12 rounded-xl flex items-center justify-center text-2xl bg-gradient-to-br from-blue-500 to-blue-600';
+                document.getElementById('userIcon').textContent = '💼';
+                document.getElementById('mobileUserIcon').className = 'w-10 h-10 rounded-xl flex items-center justify-center text-lg bg-gradient-to-br from-blue-500 to-blue-600';
+                document.getElementById('mobileUserIcon').textContent = '💼';
+                document.getElementById('userRole').className = 'text-xs uppercase tracking-wider text-blue-400';
+                document.getElementById('menuReports').classList.add('hidden');
+                document.getElementById('menuProducts').classList.add('hidden');
+                document.getElementById('menuUsers').classList.add('hidden');
+                document.getElementById('inventoryAdminBtns').classList.add('hidden');
+            }
+            renderProducts();
+            showView('pos');
+        }
+
+        function showNotification(message, type = 'success') {
+            const notif = document.getElementById('notification');
+            notif.textContent = (type === 'success' ? '✓ ' : '✕ ') + message;
+            notif.className = 'fixed top-4 right-4 z-50 px-4 md:px-6 py-3 rounded-2xl shadow-2xl text-white font-medium text-sm md:text-base ' + (type === 'success' ? 'bg-gradient-to-r from-green-600 to-green-700' : 'bg-gradient-to-r from-red-500 to-red-600');
+            setTimeout(() => { notif.className = 'hidden'; }, 3000);
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('sidebar-open');
+            document.getElementById('overlay').classList.toggle('active');
+        }
+
+        function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const user = users.find(u => u.username === username && u.password === password);
+            
+            if (user) {
+                currentUser = user;
+                saveSession(user);
+                initializeDashboard(user);
+                showNotification('¡Bienvenido, ' + user.name + '!');
+            } else {
+                showNotification('Credenciales incorrectas', 'error');
+            }
+        }
+
+        function logout() {
+            currentUser = null; cart = [];
+            clearSession();
+            document.getElementById('dashboard').classList.add('hidden');
+            document.getElementById('loginScreen').classList.remove('hidden');
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+            showNotification('Sesión cerrada');
+        }
+
+        function showView(view) {
+            if (window.innerWidth < 768) { document.getElementById('sidebar').classList.remove('sidebar-open'); document.getElementById('overlay').classList.remove('active'); }
+            document.querySelectorAll('.menu-btn').forEach(btn => { btn.classList.remove('bg-gradient-to-r', 'from-red-600', 'to-red-700', 'text-white', 'shadow-lg'); btn.classList.add('text-green-200', 'hover:bg-green-700/50'); });
+            const activeBtn = document.getElementById('btn' + view.charAt(0).toUpperCase() + view.slice(1));
+            if (activeBtn) { activeBtn.classList.add('bg-gradient-to-r', 'from-red-600', 'to-red-700', 'text-white', 'shadow-lg'); activeBtn.classList.remove('text-green-200', 'hover:bg-green-700/50'); }
+            ['pos', 'reports', 'products', 'inventory', 'history', 'cashcut', 'users'].forEach(v => document.getElementById(v + 'View').classList.add('hidden'));
+            document.getElementById(view + 'View').classList.remove('hidden');
+            if (view === 'reports') updateReports();
+            if (view === 'products') renderProductsTable();
+            if (view === 'history') renderHistory();
+            if (view === 'inventory') renderInventory();
+            if (view === 'cashcut') renderCashCut();
+            if (view === 'users') renderUsers();
+        }
+
+        // ============================================
+        // PRODUCTOS
+        // ============================================
+        function renderProducts() {
+            document.getElementById('productsGrid').innerHTML = products.filter(p => p.active).map(p => `
+                <button onclick="addToCart(${p.id})" class="group bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-2xl transition-all transform hover:scale-[1.02] border-2 border-transparent hover:border-green-500 text-left">
+                    <div class="text-4xl md:text-6xl mb-2 md:mb-4 group-hover:scale-110 transition-transform">${p.image}</div>
+                    <h3 class="font-bold text-gray-800 text-sm md:text-lg mb-1 md:mb-2 line-clamp-2">${p.name}</h3>
+                    <p class="text-lg md:text-2xl font-extrabold text-green-600">${formatCurrency(p.price)}</p>
+                </button>
+            `).join('');
+        }
+
+        // ============================================
+        // CARRITO
+        // ============================================
+        function addToCart(productId) {
+            const product = products.find(p => p.id === productId);
+            
+            // Verificar inventario
+            if (!checkInventory(product.name, 1)) {
+                showNotification('Sin stock suficiente para ' + product.name, 'error');
+                return;
+            }
+            
+            const existing = cart.find(item => item.id === productId);
+            if (existing) { 
+                if (!checkInventory(product.name, existing.quantity + 1)) {
+                    showNotification('Sin stock suficiente para agregar más', 'error');
+                    return;
+                }
+                existing.quantity++; 
+            } else { 
+                cart.push({ ...product, quantity: 1 }); 
+            }
+            showNotification(product.name + ' agregado');
+            updateCart();
+        }
+
+        function checkInventory(productName, quantity) {
+            const recipe = RECIPES[productName];
+            if (!recipe) return true;
+            
+            for (const [ingredient, needed] of Object.entries(recipe)) {
+                if (inventory[ingredient].quantity < needed * quantity) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        async function deductInventory(productName, quantity) {
+            const recipe = RECIPES[productName];
+            if (!recipe) return;
+            
+            for (const [ingredient, needed] of Object.entries(recipe)) {
+                inventory[ingredient].quantity -= needed * quantity;
+            }
+            await saveToFirebase('config', 'inventory', inventory);
+            saveAllData();
+        }
+
+        function updateQuantity(productId, delta) {
+            const item = cart.find(i => i.id === productId);
+            if (item) { 
+                if (delta > 0 && !checkInventory(item.name, item.quantity + 1)) {
+                    showNotification('Sin stock suficiente', 'error');
+                    return;
+                }
+                item.quantity += delta; 
+                if (item.quantity <= 0) { cart = cart.filter(i => i.id !== productId); } 
+                updateCart(); 
+            }
+        }
+
+        function removeFromCart(productId) { cart = cart.filter(i => i.id !== productId); updateCart(); }
+
+        function updateCart() {
+            const cartDiv = document.getElementById('cartItems');
+            const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            document.getElementById('cartCount').textContent = cart.length + ' productos';
+            document.getElementById('subtotal').textContent = formatCurrency(total);
+            document.getElementById('total').textContent = formatCurrency(total);
+            
+            if (cart.length === 0) {
+                cartDiv.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-gray-400 py-8"><span class="text-5xl md:text-6xl mb-4">🛒</span><p class="font-medium">El carrito está vacío</p></div>`;
+                document.getElementById('checkoutBtn').className = 'w-full py-3 md:py-4 bg-gradient-to-r from-gray-300 to-gray-400 text-white font-bold text-base md:text-lg rounded-xl cursor-not-allowed';
+                document.getElementById('checkoutBtn').textContent = 'Agrega productos';
+            } else {
+                cartDiv.innerHTML = '<ul class="space-y-3">' + cart.map(item => `
+                    <li class="bg-gray-50 rounded-xl p-3 md:p-4">
+                        <div class="flex justify-between items-start mb-2 md:mb-3">
+                            <div class="flex items-center gap-2 md:gap-3"><span class="text-xl md:text-2xl">${item.image}</span><span class="font-semibold text-gray-800 text-sm md:text-base">${item.name}</span></div>
+                            <button onclick="removeFromCart(${item.id})" class="text-red-500 hover:text-red-700 p-1">✕</button>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <div class="flex items-center gap-1 md:gap-2 bg-white rounded-lg border border-gray-200">
+                                <button onclick="updateQuantity(${item.id}, -1)" class="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded-l-lg font-bold">−</button>
+                                <span class="w-8 md:w-10 text-center font-bold text-gray-800 text-sm md:text-base">${item.quantity}</span>
+                                <button onclick="updateQuantity(${item.id}, 1)" class="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded-r-lg font-bold">+</button>
+                            </div>
+                            <span class="font-bold text-green-600 text-base md:text-lg">${formatCurrency(item.price * item.quantity)}</span>
+                        </div>
+                    </li>
+                `).join('') + '</ul>';
+                document.getElementById('checkoutBtn').className = 'w-full py-3 md:py-4 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold text-base md:text-lg rounded-xl hover:from-red-700 hover:to-red-800 transition-all shadow-lg cursor-pointer';
+                document.getElementById('checkoutBtn').textContent = 'Cobrar ' + formatCurrency(total);
+            }
+        }
+
+        function setPayment(method) {
+            paymentMethod = method;
+            document.querySelectorAll('.pay-btn').forEach(btn => { btn.classList.remove('border-green-500', 'bg-green-50', 'text-green-700'); btn.classList.add('border-gray-200'); });
+            const selected = document.getElementById('pay' + method.charAt(0).toUpperCase() + method.slice(1));
+            selected.classList.add('border-green-500', 'bg-green-50', 'text-green-700');
+            selected.classList.remove('border-gray-200');
+        }
+
+        async function processSale() {
+            if (cart.length === 0) return;
+            
+            // Deducir del inventario
+            for (const item of cart) {
+                await deductInventory(item.name, item.quantity);
+            }
+            
+            const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const sale = { id: Date.now(), items: [...cart], total: total, paymentMethod: paymentMethod, date: new Date().toISOString(), cashier: currentUser.name };
+            sales.push(sale);
+            await saveToFirebase('sales', sale.id, sale);
+            saveAllData();
+            printReceipt(sale);
+            cart = [];
+            updateCart();
+            showNotification('¡Venta procesada exitosamente!');
+        }
+
+        function printReceipt(sale) {
+            const w = window.open('', '_blank', 'width=300,height=600');
+            w.document.write(`<!DOCTYPE html><html><head><title>Recibo #${sale.id}</title>
+            <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;padding:20px;max-width:280px;margin:0 auto;font-size:12px}.header{text-align:center;margin-bottom:20px;border-bottom:2px dashed #000;padding-bottom:15px}.header h1{font-size:18px;margin-bottom:5px;color:#166534}.header h2{font-size:14px}.info{margin:15px 0;font-size:11px}.items{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:15px 0;margin:15px 0}.item{display:flex;justify-content:space-between;margin:8px 0}.total{font-size:18px;font-weight:bold;text-align:right;margin:15px 0;padding-top:10px;border-top:2px solid #000}.footer{text-align:center;margin-top:20px;font-size:10px;color:#666}</style></head>
+            <body><div class="header"><h1>NEW YORKER PIZZA</h1><h2>San Pedro</h2></div>
+            <div class="info"><p><strong>Recibo:</strong> #${sale.id}</p><p><strong>Fecha:</strong> ${formatDate(sale.date)}</p><p><strong>Cajero:</strong> ${sale.cashier}</p><p><strong>Pago:</strong> ${sale.paymentMethod}</p></div>
+            <div class="items">${sale.items.map(i => `<div class="item"><span>${i.name} x${i.quantity}</span><span>$${(i.price*i.quantity).toFixed(2)}</span></div>`).join('')}</div>
+            <div class="total">TOTAL: ${formatCurrency(sale.total)}</div>
+            <div class="footer"><p>¡Gracias por su preferencia!</p><p>Vuelva pronto 🍕</p></div>
+            <script>window.onload=function(){window.print();}<\/script></body></html>`);
+            w.document.close();
+        }
+
+        // ============================================
+        // INVENTARIO
+        // ============================================
+        function renderInventory() {
+            const isAdmin = currentUser && currentUser.role === 'admin';
+            const lowStockItems = [];
+            
+            let html = '';
+            for (const [key, item] of Object.entries(inventory)) {
+                const isLow = item.quantity <= item.minStock;
+                if (isLow) lowStockItems.push(item.name);
+                
+                html += `
+                    <div class="bg-white rounded-2xl p-5 md:p-6 shadow-lg ${isLow ? 'border-2 border-red-300 low-stock' : ''}">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-3">
+                                <span class="text-4xl">${item.icon}</span>
+                                <div>
+                                    <h3 class="font-bold text-gray-800">${item.name}</h3>
+                                    <p class="text-sm text-gray-500">${item.unit}</p>
+                                </div>
+                            </div>
+                            ${isAdmin ? `<button onclick="showEditInventoryModal('${key}')" class="p-2 bg-blue-100 text-blue-600 rounded-xl hover:bg-blue-200">✏️</button>` : ''}
+                        </div>
+                        <div class="flex items-end justify-between">
+                            <p class="text-4xl font-extrabold ${isLow ? 'text-red-600' : 'text-green-600'}">${item.quantity}</p>
+                            ${isLow ? '<span class="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full">Stock Bajo</span>' : ''}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            document.getElementById('inventoryGrid').innerHTML = html;
+            
+            if (lowStockItems.length > 0) {
+                document.getElementById('lowStockAlert').classList.remove('hidden');
+                document.getElementById('lowStockItems').textContent = lowStockItems.join(', ');
+            } else {
+                document.getElementById('lowStockAlert').classList.add('hidden');
+            }
+        }
+
+        function showAddInventoryModal() {
+            document.getElementById('invQuantity').value = '';
+            document.getElementById('inventoryModal').classList.remove('hidden');
+        }
+
+        function closeInventoryModal() {
+            document.getElementById('inventoryModal').classList.add('hidden');
+        }
+
+        async function addInventory() {
+            const item = document.getElementById('invItem').value;
+            const quantity = parseInt(document.getElementById('invQuantity').value);
+            
+            if (!quantity || quantity < 1) {
+                showNotification('Ingresa una cantidad válida', 'error');
+                return;
+            }
+            
+            inventory[item].quantity += quantity;
+            await saveToFirebase('config', 'inventory', inventory);
+            saveAllData();
+            closeInventoryModal();
+            renderInventory();
+            showNotification(`Se agregaron ${quantity} ${inventory[item].unit} de ${inventory[item].name}`);
+        }
+
+        function showEditInventoryModal(key) {
+            editingInventoryItem = key;
+            document.getElementById('editInvLabel').textContent = inventory[key].name;
+            document.getElementById('editInvQuantity').value = inventory[key].quantity;
+            document.getElementById('editInventoryModal').classList.remove('hidden');
+        }
+
+        function closeEditInventoryModal() {
+            document.getElementById('editInventoryModal').classList.add('hidden');
+            editingInventoryItem = null;
+        }
+
+        async function saveInventoryEdit() {
+            const quantity = parseInt(document.getElementById('editInvQuantity').value);
+            
+            if (quantity < 0) {
+                showNotification('La cantidad no puede ser negativa', 'error');
+                return;
+            }
+            
+            inventory[editingInventoryItem].quantity = quantity;
+            await saveToFirebase('config', 'inventory', inventory);
+            saveAllData();
+            closeEditInventoryModal();
+            renderInventory();
+            showNotification('Inventario actualizado');
+        }
+
+        // ============================================
+        // GESTIÓN DE USUARIOS
+        // ============================================
+        function renderUsers() {
+            document.getElementById('usersGrid').innerHTML = users.map(user => `
+                <div class="bg-white rounded-2xl p-5 md:p-6 shadow-lg">
+                    <div class="flex items-center gap-4 mb-4">
+                        <div class="w-14 h-14 rounded-xl flex items-center justify-center text-2xl ${user.role === 'admin' ? 'bg-gradient-to-br from-yellow-500 to-yellow-600' : 'bg-gradient-to-br from-blue-500 to-blue-600'}">
+                            ${user.role === 'admin' ? '👑' : '💼'}
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="font-bold text-gray-800">${user.name}</h3>
+                            <p class="text-sm text-gray-500">@${user.username}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="px-3 py-1 rounded-lg text-sm font-medium ${user.role === 'admin' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}">
+                            ${user.role === 'admin' ? '👑 Administrador' : '💼 Cajero'}
+                        </span>
+                        <div class="flex gap-2">
+                            <button onclick="editUser('${user.id}')" class="p-2 bg-blue-100 text-blue-600 rounded-xl hover:bg-blue-200">✏️</button>
+                            ${user.id !== currentUser.id ? `<button onclick="showDeleteUserModal('${user.id}')" class="p-2 bg-red-100 text-red-600 rounded-xl hover:bg-red-200">🗑️</button>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function showUserModal(userId = null) {
+            editingUserId = userId;
+            const user = userId ? users.find(u => u.id === userId) : null;
+            
+            document.getElementById('userModalTitle').textContent = user ? 'Editar Usuario' : 'Nuevo Usuario';
+            document.getElementById('userFullName').value = user ? user.name : '';
+            document.getElementById('userUsername').value = user ? user.username : '';
+            document.getElementById('userPassword').value = user ? user.password : '';
+            document.getElementById('userRoleSelect').value = user ? user.role : 'cajero';
+            
+            document.getElementById('userModal').classList.remove('hidden');
+        }
+
+        function closeUserModal() {
+            document.getElementById('userModal').classList.add('hidden');
+            editingUserId = null;
+        }
+
+        function editUser(userId) {
+            showUserModal(userId);
+        }
+
+        async function saveUser() {
+            const name = document.getElementById('userFullName').value.trim();
+            const username = document.getElementById('userUsername').value.trim().toLowerCase();
+            const password = document.getElementById('userPassword').value;
+            const role = document.getElementById('userRoleSelect').value;
+            
+            if (!name || !username || !password) {
+                showNotification('Completa todos los campos', 'error');
+                return;
+            }
+            
+            if (password.length < 6) {
+                showNotification('La contraseña debe tener mínimo 6 caracteres', 'error');
+                return;
+            }
+            
+            // Verificar si el username ya existe (excepto si estamos editando el mismo usuario)
+            const existingUser = users.find(u => u.username === username && u.id !== editingUserId);
+            if (existingUser) {
+                showNotification('El nombre de usuario ya existe', 'error');
+                return;
+            }
+            
+            if (editingUserId) {
+                // Editar usuario existente
+                const idx = users.findIndex(u => u.id === editingUserId);
+                users[idx] = { ...users[idx], name, username, password, role };
+                await saveToFirebase('users', editingUserId, users[idx]);
+                showNotification('Usuario actualizado');
+                
+                // Si el usuario editado es el actual, actualizar sesión
+                if (editingUserId === currentUser.id) {
+                    currentUser = users[idx];
+                    saveSession(currentUser);
+                    initializeDashboard(currentUser);
+                }
+            } else {
+                // Crear nuevo usuario
+                const newUser = { id: 'user_' + Date.now(), name, username, password, role };
+                users.push(newUser);
+                await saveToFirebase('users', newUser.id, newUser);
+                showNotification('Usuario creado');
+            }
+            
+            saveAllData();
+            closeUserModal();
+            renderUsers();
+        }
+
+        function showDeleteUserModal(userId) {
+            const user = users.find(u => u.id === userId);
+            if (!user) return;
+            
+            userToDelete = userId;
+            document.getElementById('deleteUserInfo').innerHTML = `
+                <p class="font-bold text-gray-800">${user.name}</p>
+                <p class="text-gray-500 text-sm">@${user.username}</p>
+                <p class="text-sm mt-2 ${user.role === 'admin' ? 'text-yellow-600' : 'text-blue-600'}">${user.role === 'admin' ? '👑 Administrador' : '💼 Cajero'}</p>
+            `;
+            document.getElementById('deleteUserModal').classList.remove('hidden');
+        }
+
+        function closeDeleteUserModal() {
+            document.getElementById('deleteUserModal').classList.add('hidden');
+            userToDelete = null;
+        }
+
+        async function confirmDeleteUser() {
+            if (!userToDelete) return;
+            
+            users = users.filter(u => u.id !== userToDelete);
+            await deleteFromFirebase('users', userToDelete);
+            saveAllData();
+            closeDeleteUserModal();
+            renderUsers();
+            showNotification('Usuario eliminado');
+        }
+
+        // ============================================
+        // CORTE DE CAJA
+        // ============================================
+        function getTodaySales() {
+            const today = new Date().toDateString();
+            return sales.filter(s => new Date(s.date).toDateString() === today);
+        }
+
+        function renderCashCut() {
+            const todaySales = getTodaySales();
+            
+            const efectivo = todaySales.filter(s => s.paymentMethod === 'efectivo').reduce((sum, s) => sum + s.total, 0);
+            const tarjeta = todaySales.filter(s => s.paymentMethod === 'tarjeta').reduce((sum, s) => sum + s.total, 0);
+            const transfer = todaySales.filter(s => s.paymentMethod === 'transferencia').reduce((sum, s) => sum + s.total, 0);
+            const total = efectivo + tarjeta + transfer;
+            
+            document.getElementById('cashEfectivo').textContent = formatCurrencyShort(efectivo);
+            document.getElementById('cashTarjeta').textContent = formatCurrencyShort(tarjeta);
+            document.getElementById('cashTransfer').textContent = formatCurrencyShort(transfer);
+            document.getElementById('cashTotal').textContent = formatCurrencyShort(total);
+            document.getElementById('todaySalesCount').textContent = todaySales.length + ' ventas';
+            
+            document.getElementById('todaySalesList').innerHTML = todaySales.length === 0 ?
+                '<p class="text-gray-500 text-center py-8">No hay ventas registradas hoy</p>' :
+                todaySales.map(sale => `
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <div>
+                            <p class="font-bold text-gray-800">Venta #${sale.id}</p>
+                            <p class="text-xs text-gray-500">${formatDateShort(sale.date)} • ${sale.cashier}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-bold text-green-600">${formatCurrencyShort(sale.total)}</p>
+                            <span class="text-xs ${sale.paymentMethod==='efectivo'?'text-green-600':sale.paymentMethod==='tarjeta'?'text-blue-600':'text-purple-600'}">
+                                ${sale.paymentMethod==='efectivo'?'💵':sale.paymentMethod==='tarjeta'?'💳':'📱'} ${sale.paymentMethod}
+                            </span>
+                        </div>
+                    </div>
+                `).join('');
+            
+            const sortedCuts = [...cashCuts].reverse();
+            document.getElementById('cashCutHistory').innerHTML = sortedCuts.length === 0 ?
+                '<p class="text-gray-500 text-center py-8">No hay cortes registrados</p>' :
+                sortedCuts.slice(0, 10).map(cut => `
+                    <div class="p-4 bg-gray-50 rounded-xl">
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <p class="font-bold text-gray-800">${formatDate(cut.date)}</p>
+                                <p class="text-xs text-gray-500">${cut.salesCount} ventas • ${cut.cashier}</p>
+                            </div>
+                            <p class="text-xl font-extrabold text-green-600">${formatCurrencyShort(cut.total)}</p>
+                        </div>
+                        <div class="flex gap-4 text-sm">
+                            <span class="text-green-600">💵 ${formatCurrencyShort(cut.efectivo)}</span>
+                            <span class="text-blue-600">💳 ${formatCurrencyShort(cut.tarjeta)}</span>
+                            <span class="text-purple-600">📱 ${formatCurrencyShort(cut.transfer)}</span>
+                        </div>
+                    </div>
+                `).join('');
+        }
+
+        function processCashCut() {
+            const todaySales = getTodaySales();
+            
+            if (todaySales.length === 0) {
+                showNotification('No hay ventas para hacer corte', 'error');
+                return;
+            }
+            
+            const efectivo = todaySales.filter(s => s.paymentMethod === 'efectivo').reduce((sum, s) => sum + s.total, 0);
+            const tarjeta = todaySales.filter(s => s.paymentMethod === 'tarjeta').reduce((sum, s) => sum + s.total, 0);
+            const transfer = todaySales.filter(s => s.paymentMethod === 'transferencia').reduce((sum, s) => sum + s.total, 0);
+            const total = efectivo + tarjeta + transfer;
+            
+            document.getElementById('cashCutSummary').innerHTML = `
+                <div class="flex justify-between"><span>💵 Efectivo:</span><span class="font-bold">${formatCurrencyShort(efectivo)}</span></div>
+                <div class="flex justify-between"><span>💳 Tarjeta:</span><span class="font-bold">${formatCurrencyShort(tarjeta)}</span></div>
+                <div class="flex justify-between"><span>📱 Transferencia:</span><span class="font-bold">${formatCurrencyShort(transfer)}</span></div>
+                <div class="flex justify-between border-t pt-2 mt-2"><span class="font-bold">TOTAL:</span><span class="font-bold text-green-600">${formatCurrencyShort(total)}</span></div>
+                <div class="flex justify-between text-sm text-gray-500"><span>Ventas:</span><span>${todaySales.length}</span></div>
+            `;
+            
+            document.getElementById('cashCutModal').classList.remove('hidden');
+        }
+
+        function closeCashCutModal() {
+            document.getElementById('cashCutModal').classList.add('hidden');
+        }
+
+        async function confirmCashCut() {
+            const todaySales = getTodaySales();
+            
+            const efectivo = todaySales.filter(s => s.paymentMethod === 'efectivo').reduce((sum, s) => sum + s.total, 0);
+            const tarjeta = todaySales.filter(s => s.paymentMethod === 'tarjeta').reduce((sum, s) => sum + s.total, 0);
+            const transfer = todaySales.filter(s => s.paymentMethod === 'transferencia').reduce((sum, s) => sum + s.total, 0);
+            
+            const cashCut = {
+                id: Date.now(),
+                date: new Date().toISOString(),
+                efectivo: efectivo,
+                tarjeta: tarjeta,
+                transfer: transfer,
+                total: efectivo + tarjeta + transfer,
+                salesCount: todaySales.length,
+                cashier: currentUser.name
+            };
+            
+            cashCuts.push(cashCut);
+            await saveToFirebase('cashcuts', cashCut.id, cashCut);
+            saveAllData();
+            closeCashCutModal();
+            renderCashCut();
+            printCashCut(cashCut);
+            showNotification('Corte de caja realizado exitosamente');
+        }
+
+        function printCashCut(cut) {
+            const w = window.open('', '_blank', 'width=300,height=500');
+            w.document.write(`<!DOCTYPE html><html><head><title>Corte de Caja</title>
+            <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;padding:20px;max-width:280px;margin:0 auto;font-size:12px}.header{text-align:center;margin-bottom:20px;border-bottom:2px dashed #000;padding-bottom:15px}.header h1{font-size:18px;margin-bottom:5px;color:#166534}.header h2{font-size:14px}.info{margin:15px 0;font-size:11px}.row{display:flex;justify-content:space-between;margin:8px 0}.total{font-size:18px;font-weight:bold;text-align:right;margin:15px 0;padding-top:10px;border-top:2px solid #000}</style></head>
+            <body><div class="header"><h1>CORTE DE CAJA</h1><h2>New Yorker Pizza</h2></div>
+            <div class="info"><p><strong>Fecha:</strong> ${formatDate(cut.date)}</p><p><strong>Cajero:</strong> ${cut.cashier}</p><p><strong>Ventas:</strong> ${cut.salesCount}</p></div>
+            <div style="border-top:1px dashed #000;padding-top:15px;margin-top:15px">
+            <div class="row"><span>Efectivo:</span><span>${formatCurrencyShort(cut.efectivo)}</span></div>
+            <div class="row"><span>Tarjeta:</span><span>${formatCurrencyShort(cut.tarjeta)}</span></div>
+            <div class="row"><span>Transferencia:</span><span>${formatCurrencyShort(cut.transfer)}</span></div>
+            </div>
+            <div class="total">TOTAL: ${formatCurrencyShort(cut.total)}</div>
+            <script>window.onload=function(){window.print();}<\/script></body></html>`);
+            w.document.close();
+        }
+
+        // ============================================
+        // REPORTES
+        // ============================================
+        function updateReports() {
+            const now = new Date();
+            const today = now.toDateString();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+            const todaySales = sales.filter(s => new Date(s.date).toDateString() === today);
+            const monthSales = sales.filter(s => { const d = new Date(s.date); return d.getMonth() === currentMonth && d.getFullYear() === currentYear; });
+            
+            document.getElementById('todayTotal').textContent = formatCurrency(todaySales.reduce((s, sale) => s + sale.total, 0));
+            document.getElementById('todayCount').textContent = todaySales.length + ' ventas';
+            document.getElementById('monthTotal').textContent = formatCurrency(monthSales.reduce((s, sale) => s + sale.total, 0));
+            document.getElementById('monthCount').textContent = monthSales.length + ' ventas';
+            document.getElementById('histTotal').textContent = formatCurrency(sales.reduce((s, sale) => s + sale.total, 0));
+            document.getElementById('histCount').textContent = sales.length + ' ventas totales';
+            
+            const productCount = {};
+            sales.forEach(sale => { sale.items.forEach(item => { if (!productCount[item.name]) productCount[item.name] = { quantity: 0, revenue: 0 }; productCount[item.name].quantity += item.quantity; productCount[item.name].revenue += item.price * item.quantity; }); });
+            const top = Object.entries(productCount).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
+            
+            document.getElementById('topProducts').innerHTML = top.length === 0 ? '<p class="text-gray-500 text-center py-8">No hay datos disponibles</p>' :
+                top.map((p, i) => `<div class="flex items-center gap-3 md:gap-4 p-3 md:p-4 bg-gray-50 rounded-xl">
+                    <div class="w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center font-bold text-white text-sm md:text-base ${i===0?'bg-yellow-500':i===1?'bg-gray-400':i===2?'bg-amber-700':'bg-gray-300'}">${i+1}</div>
+                    <div class="flex-1 min-w-0"><p class="font-bold text-gray-800 text-sm md:text-base truncate">${p.name}</p><p class="text-xs md:text-sm text-gray-500">${p.quantity} unidades</p></div>
+                    <p class="font-bold text-green-600 text-sm md:text-base">${formatCurrency(p.revenue)}</p>
+                </div>`).join('');
+        }
+
+        // ============================================
+        // GESTIÓN DE PRODUCTOS
+        // ============================================
+        function renderProductsTable() {
+            document.getElementById('productsTable').innerHTML = products.map(p => `
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                    <td class="p-6"><div class="flex items-center gap-4"><span class="text-4xl">${p.image}</span><span class="font-bold text-gray-800">${p.name}</span></div></td>
+                    <td class="p-6"><span class="px-4 py-2 bg-gray-100 rounded-lg text-gray-600 capitalize">${p.category}</span></td>
+                    <td class="p-6"><span class="font-bold text-green-600 text-lg">${formatCurrency(p.price)}</span></td>
+                    <td class="p-6"><button onclick="toggleProduct(${p.id})" class="px-4 py-2 rounded-lg font-medium ${p.active?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}">${p.active?'✓ Activo':'✕ Inactivo'}</button></td>
+                    <td class="p-6"><div class="flex justify-end gap-2">
+                        <button onclick="editProduct(${p.id})" class="p-3 bg-blue-100 text-blue-600 rounded-xl hover:bg-blue-200">✏️</button>
+                        <button onclick="deleteProduct(${p.id})" class="p-3 bg-red-100 text-red-600 rounded-xl hover:bg-red-200">🗑️</button>
+                    </div></td>
+                </tr>
+            `).join('');
+            
+            document.getElementById('productsCards').innerHTML = products.map(p => `
+                <div class="bg-white rounded-2xl p-4 shadow-lg">
+                    <div class="flex items-center gap-4 mb-4"><span class="text-4xl">${p.image}</span><div class="flex-1"><h3 class="font-bold text-gray-800">${p.name}</h3><p class="text-green-600 font-bold">${formatCurrency(p.price)}</p></div></div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="px-3 py-1 bg-gray-100 rounded-lg text-gray-600 text-sm capitalize">${p.category}</span>
+                            <button onclick="toggleProduct(${p.id})" class="px-3 py-1 rounded-lg text-sm font-medium ${p.active?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}">${p.active?'✓ Activo':'✕ Inactivo'}</button>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="editProduct(${p.id})" class="p-2 bg-blue-100 text-blue-600 rounded-xl">✏️</button>
+                            <button onclick="deleteProduct(${p.id})" class="p-2 bg-red-100 text-red-600 rounded-xl">🗑️</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function showProductModal(productId = null) {
+            editingProductId = productId;
+            const product = productId ? products.find(p => p.id === productId) : null;
+            document.getElementById('modalTitle').textContent = product ? 'Editar Producto' : 'Nuevo Producto';
+            document.getElementById('prodName').value = product ? product.name : '';
+            document.getElementById('prodPrice').value = product ? product.price : '';
+            document.getElementById('prodCategory').value = product ? product.category : 'pizza';
+            selectedEmoji = product ? product.image : '🍕';
+            document.getElementById('emojiPicker').innerHTML = EMOJIS.map(e => `<button type="button" onclick="selectEmoji('${e}')" class="emoji-btn w-10 h-10 md:w-12 md:h-12 rounded-xl text-xl md:text-2xl flex items-center justify-center ${selectedEmoji===e?'bg-green-500 scale-110 shadow-lg':'bg-gray-100 hover:bg-gray-200'}">${e}</button>`).join('');
+            document.getElementById('productModal').classList.remove('hidden');
+        }
+
+        function selectEmoji(emoji) {
+            selectedEmoji = emoji;
+            document.querySelectorAll('.emoji-btn').forEach(btn => { btn.classList.remove('bg-green-500', 'scale-110', 'shadow-lg'); btn.classList.add('bg-gray-100'); });
+            event.target.classList.add('bg-green-500', 'scale-110', 'shadow-lg');
+            event.target.classList.remove('bg-gray-100');
+        }
+
+        function closeProductModal() { document.getElementById('productModal').classList.add('hidden'); editingProductId = null; }
+
+        async function saveProduct() {
+            const name = document.getElementById('prodName').value;
+            const price = parseFloat(document.getElementById('prodPrice').value);
+            const category = document.getElementById('prodCategory').value;
+            if (!name || !price) { showNotification('Completa todos los campos', 'error'); return; }
+            if (editingProductId) {
+                const idx = products.findIndex(p => p.id === editingProductId);
+                products[idx] = { ...products[idx], name, price, category, image: selectedEmoji };
+                await saveToFirebase('products', editingProductId, products[idx]);
+                showNotification('Producto actualizado');
+            } else {
+                const newProduct = { id: Date.now(), name, price, category, image: selectedEmoji, active: true };
+                products.push(newProduct);
+                await saveToFirebase('products', newProduct.id, newProduct);
+                showNotification('Producto creado');
+            }
+            saveAllData();
+            closeProductModal();
+            renderProductsTable();
+            renderProducts();
+        }
+
+        async function toggleProduct(id) { 
+            const p = products.find(p => p.id === id); 
+            p.active = !p.active; 
+            await saveToFirebase('products', id, p);
+            saveAllData(); 
+            renderProductsTable(); 
+            renderProducts(); 
+            showNotification('Producto actualizado'); 
+        }
+
+        async function deleteProduct(id) { 
+            if (confirm('¿Eliminar este producto?')) { 
+                products = products.filter(p => p.id !== id); 
+                await deleteFromFirebase('products', id);
+                saveAllData(); 
+                renderProductsTable(); 
+                renderProducts(); 
+                showNotification('Producto eliminado'); 
+            } 
+        }
+
+        function editProduct(id) { showProductModal(id); }
+
+        // ============================================
+        // HISTORIAL Y ELIMINAR VENTAS
+        // ============================================
+        function showDeleteSaleModal(saleId) {
+            const sale = sales.find(s => s.id === saleId);
+            if (!sale) return;
+            saleToDelete = saleId;
+            document.getElementById('deleteSaleInfo').innerHTML = `
+                <div class="text-center">
+                    <p class="font-bold text-gray-800 mb-1">Venta #${sale.id}</p>
+                    <p class="text-gray-500 text-sm mb-2">${formatDate(sale.date)}</p>
+                    <p class="text-2xl font-extrabold text-red-600">${formatCurrency(sale.total)}</p>
+                </div>
+            `;
+            document.getElementById('deleteSaleModal').classList.remove('hidden');
+        }
+
+        function closeDeleteSaleModal() {
+            document.getElementById('deleteSaleModal').classList.add('hidden');
+            saleToDelete = null;
+        }
+
+        async function confirmDeleteSale() {
+            if (saleToDelete === null) return;
+            sales = sales.filter(s => s.id !== saleToDelete);
+            await deleteFromFirebase('sales', saleToDelete);
+            saveAllData();
+            closeDeleteSaleModal();
+            renderHistory();
+            showNotification('Venta eliminada correctamente');
+        }
+
+        function renderHistory() {
+            const sorted = [...sales].reverse();
+            const isAdmin = currentUser && currentUser.role === 'admin';
+            
+            document.getElementById('salesHistory').innerHTML = sorted.length === 0 ? 
+                `<div class="bg-white rounded-2xl md:rounded-3xl p-8 md:p-12 text-center shadow-xl"><span class="text-5xl md:text-6xl mb-4 block">📋</span><p class="text-lg md:text-xl font-bold text-gray-800">No hay ventas registradas</p></div>` :
+                sorted.map(sale => `
+                    <div class="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg">
+                        <div class="flex flex-col md:flex-row md:justify-between md:items-start gap-2 mb-4">
+                            <div><p class="font-bold text-gray-800 text-base md:text-lg">Venta #${sale.id}</p><p class="text-gray-500 text-xs md:text-sm">${formatDate(sale.date)}</p></div>
+                            <div class="flex items-center justify-between md:flex-col md:items-end gap-2">
+                                <p class="text-xl md:text-2xl font-extrabold text-green-600">${formatCurrency(sale.total)}</p>
+                                <span class="inline-block px-2 md:px-3 py-1 rounded-lg text-xs md:text-sm font-medium ${sale.paymentMethod==='efectivo'?'bg-green-100 text-green-700':sale.paymentMethod==='tarjeta'?'bg-blue-100 text-blue-700':'bg-purple-100 text-purple-700'}">
+                                    ${sale.paymentMethod==='efectivo'?'💵':sale.paymentMethod==='tarjeta'?'💳':'📱'} ${sale.paymentMethod}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap gap-2 mb-4">${sale.items.map(i => `<span class="px-2 md:px-3 py-1 bg-gray-100 rounded-lg text-xs md:text-sm">${i.image} ${i.name} x${i.quantity}</span>`).join('')}</div>
+                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 pt-4 border-t border-gray-100">
+                            <p class="text-xs md:text-sm text-gray-500">Atendido por: <span class="font-medium">${sale.cashier}</span></p>
+                            <div class="flex gap-2">
+                                <button onclick='printReceipt(${JSON.stringify(sale)})' class="flex items-center gap-2 px-3 md:px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-gray-700 font-medium text-sm">🖨️ Reimprimir</button>
+                                ${isAdmin ? `<button onclick="showDeleteSaleModal(${sale.id})" class="flex items-center gap-2 px-3 md:px-4 py-2 bg-red-100 hover:bg-red-200 rounded-xl text-red-600 font-medium text-sm">🗑️ Eliminar</button>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+        }
+
+        // ============================================
+        // INICIALIZACIÓN
+        // ============================================
+        document.addEventListener('DOMContentLoaded', async function() {
+            updateConnectionStatus();
+            await loadData();
+            const sessionRestored = restoreSession();
+            if (!sessionRestored) { renderProducts(); }
+            document.getElementById('password').addEventListener('keypress', function(e) { if (e.key === 'Enter') login(); });
+        });
+    </script>
+</body>
+</html>
